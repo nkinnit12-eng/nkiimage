@@ -36,23 +36,6 @@ except ImportError:
 
 
 
-
-def check_password():
-    if st.session_state.get("authenticated"):
-        return True
-    
-    pwd = st.text_input("Password", type="password")
-    if pwd:
-        if hashlib.sha256(pwd.encode()).hexdigest() == st.secrets["PASSWORD_HASH"]:
-            st.session_state["authenticated"] = True
-            st.rerun()
-        else:
-            st.error("Wrong password")
-    return False
-
-if not check_password():
-    st.stop()
-
 # For Arabic text rendering
 try:
     import arabic_reshaper
