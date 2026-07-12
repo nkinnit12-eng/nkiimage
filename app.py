@@ -81,7 +81,9 @@ def fix_imagemagick_policy():
     except Exception: pass
 
 # --- CONFIGURATION ---
-GEMINI_API_KEY = "AIzaSyCS-elrzRpiT5ItSNy0NSUhu0d7Bs7OCyk" # <-- IMPORTANT: REPLACE WITH YOUR ACTUAL KEY
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+
+# <-- IMPORTANT: REPLACE WITH YOUR ACTUAL KEY
 genai.configure(api_key=GEMINI_API_KEY)
 try:
     #model = genai.GenerativeModel('models/gemini-2.5-flash')
@@ -144,8 +146,9 @@ def download_image(prompt, filename, width=1080, height=1920, seed=None,
                 "height": height,
                 "seed": random_seed,
             }
+            WEBSITEURLAPI = os.environ["WEBSITEURLAPI"]
             response = requests.get(
-                "https://images.hobrts.workers.dev/",
+                WEBSITEURLAPI,
                 params=params,
                 timeout=90,
             )

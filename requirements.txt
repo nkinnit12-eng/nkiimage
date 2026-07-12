@@ -1,0 +1,1 @@
+streamlit, google-generativeai, moviepy, edge-tts, pillow, arabic-reshaper, python-bidi, requests, numpy, google-auth, google-auth-oauthlib, google-api-python-client
