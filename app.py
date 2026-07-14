@@ -37,8 +37,15 @@ except ImportError:
 # interactive browser login, which is why this replaces run_local_server()
 # on Streamlit Cloud.
 if _YT_LIBS_OK and "YT_TOKEN_B64" in st.secrets and not os.path.exists("yt_token.pickle"):
-    with open("yt_token.pickle", "wb") as f:
-        f.write(base64.b64decode(st.secrets["YT_TOKEN_B64"]))
+    try:
+        with open("yt_token.pickle", "wb") as f:
+            f.write(base64.b64decode(st.secrets["YT_TOKEN_B64"]))
+    except Exception:
+        # Corrupted / truncated secret — fail quietly here; the sidebar
+        # status check (yt_ready) will correctly show "not connected"
+        # instead of crashing the whole app on startup.
+        if os.path.exists("yt_token.pickle"):
+            os.remove("yt_token.pickle")
 
 
 
