@@ -1,5 +1,3 @@
-
-
 import streamlit as st
 import google.generativeai as genai
 import csv
@@ -32,6 +30,16 @@ try:
     _YT_LIBS_OK = True
 except ImportError:
     _YT_LIBS_OK = False
+
+# Restore the YouTube auth token from Streamlit Secrets on every startup.
+# Generated ONCE locally (where a browser exists) — see setup notes — then
+# base64-encoded and pasted into Secrets as YT_TOKEN_B64. Never re-runs the
+# interactive browser login, which is why this replaces run_local_server()
+# on Streamlit Cloud.
+if _YT_LIBS_OK and "YT_TOKEN_B64" in st.secrets and not os.path.exists("yt_token.pickle"):
+    with open("yt_token.pickle", "wb") as f:
+        f.write(base64.b64decode(st.secrets["YT_TOKEN_B64"]))
+
 
 
 
@@ -509,20 +517,40 @@ def _delete_history_entry(index):
 _YT_SCOPES      = ["https://www.googleapis.com/auth/youtube.upload"]
 _YT_TOKEN_FILE  = "yt_token.pickle"
 
-def _get_youtube_client(client_secrets_path):
-    """Authenticate and return a YouTube API client. Caches token to disk."""
-    creds = None
-    if os.path.exists(_YT_TOKEN_FILE):
-        with open(_YT_TOKEN_FILE, "rb") as f:
-            creds = pickle.load(f)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
+def _get_youtube_client(client_secrets_path=None):
+    """
+    Authenticate and return a YouTube API client — cloud-safe version.
+
+    On Streamlit Cloud there is no browser, so this NEVER calls
+    run_local_server(). It only ever reads yt_token.pickle (restored from
+    st.secrets["YT_TOKEN_B64"] at startup, above) and refreshes it if expired.
+
+    If you need to generate that token for the first time, or the refresh
+    token itself has died (e.g. OAuth consent screen still in "Testing" mode,
+    which expires refresh tokens after 7 days), do that step locally on your
+    own machine — see the separate one-time generation script — then update
+    YT_TOKEN_B64 in Secrets with the new value.
+    """
+    if not os.path.exists(_YT_TOKEN_FILE):
+        raise RuntimeError(
+            "لا يوجد yt_token.pickle. يجب توليده مرة واحدة على جهازك المحلي "
+            "(حيث يوجد متصفح) ثم إضافته إلى Secrets باسم YT_TOKEN_B64."
+        )
+
+    with open(_YT_TOKEN_FILE, "rb") as f:
+        creds = pickle.load(f)
+
+    if not creds.valid:
+        if creds.expired and creds.refresh_token:
             creds.refresh(Request())
+            with open(_YT_TOKEN_FILE, "wb") as f:
+                pickle.dump(creds, f)
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(client_secrets_path, _YT_SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open(_YT_TOKEN_FILE, "wb") as f:
-            pickle.dump(creds, f)
+            raise RuntimeError(
+                "انتهت صلاحية توكن YouTube ولا يمكن تجديده تلقائياً. "
+                "أعد توليد yt_token.pickle محلياً وحدّث YT_TOKEN_B64 في Secrets."
+            )
+
     return build("youtube", "v3", credentials=creds)
 
 
@@ -536,12 +564,11 @@ def upload_to_youtube_shorts(video_path, animal_name, title_template, descriptio
     if not _YT_LIBS_OK:
         return False, "مكتبات YouTube غير مثبتة. شغّل: pip install google-auth google-auth-oauthlib google-api-python-client"
 
-    client_secrets = st.session_state.get("yt_client_secrets_path")
-    if not client_secrets or not os.path.exists(client_secrets):
-        return False, "لم يتم تحميل ملف client_secrets.json لـ YouTube."
+    if not os.path.exists(_YT_TOKEN_FILE):
+        return False, "لم يتم إعداد توكن YouTube (YT_TOKEN_B64) في Secrets."
 
     try:
-        youtube = _get_youtube_client(client_secrets)
+        youtube = _get_youtube_client()
         title = title_template.replace("{animal}", animal_name)[:100]   # YT title max 100 chars
 
         body = {
@@ -666,14 +693,9 @@ def run_streamlit_app_ar():
     # YouTube settings
     st.sidebar.markdown("---")
     st.sidebar.header("🎬 إعدادات YouTube")
-    yt_secrets_file = st.sidebar.file_uploader("📂 ارفع ملف client_secrets.json", type="json", key="yt_secrets_uploader")
-    if yt_secrets_file:
-        secrets_save_path = "yt_client_secrets.json"
-        with open(secrets_save_path, "wb") as f:
-            f.write(yt_secrets_file.read())
-        st.session_state["yt_client_secrets_path"] = secrets_save_path
-        st.sidebar.success("✅ تم حفظ ملف الاعتماد")
-    yt_ready = bool(st.session_state.get("yt_client_secrets_path") and os.path.exists(st.session_state.get("yt_client_secrets_path", "")))
+    # Auth is now handled entirely via Secrets (YT_TOKEN_B64), restored to
+    # yt_token.pickle at startup — no file upload or browser login needed here.
+    yt_ready = os.path.exists(_YT_TOKEN_FILE)
     yt_title_template = st.sidebar.text_input(
         "📝 قالب عنوان الفيديو (استخدم {animal})",
         value="{animal} - حقائق مذهلة لن تصدقها 🐾 #shorts #حيوانات",
@@ -682,9 +704,9 @@ def run_streamlit_app_ar():
     if not _YT_LIBS_OK:
         st.sidebar.warning("⚠️ مكتبات YouTube غير مثبتة: pip install google-auth google-auth-oauthlib google-api-python-client")
     if yt_ready:
-        st.sidebar.success("🟢 YouTube متصل")
+        st.sidebar.success("🟢 YouTube متصل (عبر التوكن المحفوظ في Secrets)")
     else:
-        st.sidebar.info("🔴 YouTube غير متصل — ارفع client_secrets.json")
+        st.sidebar.info("🔴 YouTube غير متصل — أضف YT_TOKEN_B64 في Secrets (انظر التعليمات)")
 
     st.sidebar.markdown("---")
 
