@@ -703,9 +703,24 @@ def run_streamlit_app_ar():
     # YouTube settings
     st.sidebar.markdown("---")
     st.sidebar.header("🎬 إعدادات YouTube")
-    st.sidebar.caption(f"طول YT_TOKEN_B64: {len(st.secrets.get('YT_TOKEN_B64', ''))} حرف")
 
-    
+    # --- TEMPORARY DEBUG BLOCK — remove once the connection issue is fixed ---
+    st.sidebar.caption(f"طول YT_TOKEN_B64: {len(st.secrets.get('YT_TOKEN_B64', ''))} حرف")
+    _dbg_exists = os.path.exists("yt_token.pickle")
+    _dbg_size = os.path.getsize("yt_token.pickle") if _dbg_exists else 0
+    st.sidebar.caption(f"yt_token.pickle موجود: {_dbg_exists} | الحجم: {_dbg_size} بايت")
+    try:
+        _dbg_decoded = base64.b64decode(st.secrets.get("YT_TOKEN_B64", ""))
+        st.sidebar.caption(f"فك base64 نجح، الحجم: {len(_dbg_decoded)} بايت")
+        try:
+            _dbg_creds = pickle.loads(_dbg_decoded)
+            st.sidebar.caption(f"فك pickle نجح ✅ | صالح: {_dbg_creds.valid}")
+        except Exception as e:
+            st.sidebar.caption(f"فشل فك pickle ❌: {e}")
+    except Exception as e:
+        st.sidebar.caption(f"فشل فك base64 ❌: {e}")
+    # --- END DEBUG BLOCK ---
+
     # Auth is now handled entirely via Secrets (YT_TOKEN_B64), restored to
     # yt_token.pickle at startup — no file upload or browser login needed here.
     yt_ready = os.path.exists(_YT_TOKEN_FILE) and os.path.getsize(_YT_TOKEN_FILE) >= 100
