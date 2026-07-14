@@ -36,7 +36,10 @@ except ImportError:
 # base64-encoded and pasted into Secrets as YT_TOKEN_B64. Never re-runs the
 # interactive browser login, which is why this replaces run_local_server()
 # on Streamlit Cloud.
-if _YT_LIBS_OK and "YT_TOKEN_B64" in st.secrets and not os.path.exists("yt_token.pickle"):
+_yt_token_missing_or_empty = (
+    not os.path.exists("yt_token.pickle") or os.path.getsize("yt_token.pickle") < 100
+)
+if _YT_LIBS_OK and "YT_TOKEN_B64" in st.secrets and _yt_token_missing_or_empty:
     try:
         with open("yt_token.pickle", "wb") as f:
             f.write(base64.b64decode(st.secrets["YT_TOKEN_B64"]))
@@ -571,7 +574,7 @@ def upload_to_youtube_shorts(video_path, animal_name, title_template, descriptio
     if not _YT_LIBS_OK:
         return False, "مكتبات YouTube غير مثبتة. شغّل: pip install google-auth google-auth-oauthlib google-api-python-client"
 
-    if not os.path.exists(_YT_TOKEN_FILE):
+    if not os.path.exists(_YT_TOKEN_FILE) or os.path.getsize(_YT_TOKEN_FILE) < 100:
         return False, "لم يتم إعداد توكن YouTube (YT_TOKEN_B64) في Secrets."
 
     try:
@@ -702,7 +705,7 @@ def run_streamlit_app_ar():
     st.sidebar.header("🎬 إعدادات YouTube")
     # Auth is now handled entirely via Secrets (YT_TOKEN_B64), restored to
     # yt_token.pickle at startup — no file upload or browser login needed here.
-    yt_ready = os.path.exists(_YT_TOKEN_FILE)
+    yt_ready = os.path.exists(_YT_TOKEN_FILE) and os.path.getsize(_YT_TOKEN_FILE) >= 100
     yt_title_template = st.sidebar.text_input(
         "📝 قالب عنوان الفيديو (استخدم {animal})",
         value="{animal} - حقائق مذهلة لن تصدقها 🐾 #shorts #حيوانات",
