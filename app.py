@@ -644,22 +644,28 @@ def _run_automation(animals, interval_seconds, params):
                 if success and final_path:
                     _auto_status['log'].append(f"✅ اكتمل الفيديو: `{os.path.basename(final_path)}`")
                     _auto_status.setdefault('done_paths', []).append(final_path)
-                    yt_url = ""
-                    # Auto-upload to YouTube if enabled
-                    if params.get('auto_yt_upload'):
+                else:
+                    _auto_status['log'].append(f"❌ فشل إنشاء الفيديو لـ {animal}.")
+
+            if success and final_path:
+                yt_url = ""
+                # Auto-upload to YouTube if enabled — done OUTSIDE the lock,
+                # since this can take a while and shouldn't freeze the
+                # progress display for that whole time.
+                if params.get('auto_yt_upload'):
+                    with _auto_lock:
                         _auto_status['log'].append(f"📤 جاري رفع الفيديو إلى YouTube Shorts: {animal}...")
-                        ok, result = upload_to_youtube_shorts(
-                            final_path, animal,
-                            params.get('yt_title_template', '{animal} حقائق مذهلة #shorts')
-                        )
+                    ok, result = upload_to_youtube_shorts(
+                        final_path, animal,
+                        params.get('yt_title_template', '{animal} حقائق مذهلة #shorts')
+                    )
+                    with _auto_lock:
                         if ok:
                             yt_url = f"https://youtube.com/shorts/{result}"
                             _auto_status['log'].append(f"✅ تم الرفع إلى YouTube: {yt_url}")
                         else:
                             _auto_status['log'].append(f"❌ فشل رفع YouTube: {result}")
-                    _save_history_entry(animal, params.get('num_facts', 0), final_path, yt_url)
-                else:
-                    _auto_status['log'].append(f"❌ فشل إنشاء الفيديو لـ {animal}.")
+                _save_history_entry(animal, params.get('num_facts', 0), final_path, yt_url)
         except Exception as e:
             with _auto_lock:
                 _auto_status['log'].append(f"❌ خطأ أثناء معالجة {animal}: {e}")
