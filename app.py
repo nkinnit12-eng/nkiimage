@@ -703,6 +703,9 @@ def run_streamlit_app_ar():
     # YouTube settings
     st.sidebar.markdown("---")
     st.sidebar.header("🎬 إعدادات YouTube")
+    st.sidebar.caption(f"طول YT_TOKEN_B64: {len(st.secrets.get('YT_TOKEN_B64', ''))} حرف")
+
+    
     # Auth is now handled entirely via Secrets (YT_TOKEN_B64), restored to
     # yt_token.pickle at startup — no file upload or browser login needed here.
     yt_ready = os.path.exists(_YT_TOKEN_FILE) and os.path.getsize(_YT_TOKEN_FILE) >= 100
