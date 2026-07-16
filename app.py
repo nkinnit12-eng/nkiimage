@@ -19,6 +19,7 @@ import subprocess
 import json
 import hashlib
 from datetime import datetime
+from social_upload import upload_facebook_reel, upload_instagram_reel
 # YouTube upload dependencies (google-auth + googleapiclient)
 try:
     from google.oauth2.credentials import Credentials
@@ -665,6 +666,35 @@ def _run_automation(animals, interval_seconds, params):
                             _auto_status['log'].append(f"✅ تم الرفع إلى YouTube: {yt_url}")
                         else:
                             _auto_status['log'].append(f"❌ فشل رفع YouTube: {result}")
+
+                if params.get('auto_fb_upload'):
+                    caption = params.get('fb_caption_template', '{animal}').replace("{animal}", animal)
+                    with _auto_lock:
+                        _auto_status['log'].append(f"📤 جاري رفع الفيديو إلى فيسبوك ريلز: {animal}...")
+                    ok, result = upload_facebook_reel(
+                        params.get('fb_page_id'), params.get('fb_page_token'),
+                        final_path, title=caption, description=caption
+                    )
+                    with _auto_lock:
+                        if ok:
+                            _auto_status['log'].append(f"✅ تم الرفع إلى فيسبوك: video_id {result}")
+                        else:
+                            _auto_status['log'].append(f"❌ فشل رفع فيسبوك: {result}")
+
+                if params.get('auto_ig_upload'):
+                    caption = params.get('fb_caption_template', '{animal}').replace("{animal}", animal)
+                    with _auto_lock:
+                        _auto_status['log'].append(f"📤 جاري رفع الفيديو إلى انستغرام ريلز: {animal} (قد يستغرق دقائق)...")
+                    ok, result = upload_instagram_reel(
+                        params.get('ig_user_id'), params.get('ig_access_token'),
+                        final_path, caption=caption
+                    )
+                    with _auto_lock:
+                        if ok:
+                            _auto_status['log'].append(f"✅ تم الرفع إلى انستغرام: media_id {result}")
+                        else:
+                            _auto_status['log'].append(f"❌ فشل رفع انستغرام: {result}")
+
                 _save_history_entry(animal, params.get('num_facts', 0), final_path, yt_url)
         except Exception as e:
             with _auto_lock:
@@ -710,23 +740,6 @@ def run_streamlit_app_ar():
     st.sidebar.markdown("---")
     st.sidebar.header("🎬 إعدادات YouTube")
 
-    # --- TEMPORARY DEBUG BLOCK — remove once the connection issue is fixed ---
-    st.sidebar.caption(f"طول YT_TOKEN_B64: {len(st.secrets.get('YT_TOKEN_B64', ''))} حرف")
-    _dbg_exists = os.path.exists("yt_token.pickle")
-    _dbg_size = os.path.getsize("yt_token.pickle") if _dbg_exists else 0
-    st.sidebar.caption(f"yt_token.pickle موجود: {_dbg_exists} | الحجم: {_dbg_size} بايت")
-    try:
-        _dbg_decoded = base64.b64decode(st.secrets.get("YT_TOKEN_B64", ""))
-        st.sidebar.caption(f"فك base64 نجح، الحجم: {len(_dbg_decoded)} بايت")
-        try:
-            _dbg_creds = pickle.loads(_dbg_decoded)
-            st.sidebar.caption(f"فك pickle نجح ✅ | صالح: {_dbg_creds.valid}")
-        except Exception as e:
-            st.sidebar.caption(f"فشل فك pickle ❌: {e}")
-    except Exception as e:
-        st.sidebar.caption(f"فشل فك base64 ❌: {e}")
-    # --- END DEBUG BLOCK ---
-
     # Auth is now handled entirely via Secrets (YT_TOKEN_B64), restored to
     # yt_token.pickle at startup — no file upload or browser login needed here.
     yt_ready = os.path.exists(_YT_TOKEN_FILE) and os.path.getsize(_YT_TOKEN_FILE) >= 100
@@ -741,6 +754,34 @@ def run_streamlit_app_ar():
         st.sidebar.success("🟢 YouTube متصل (عبر التوكن المحفوظ في Secrets)")
     else:
         st.sidebar.info("🔴 YouTube غير متصل — أضف YT_TOKEN_B64 في Secrets (انظر التعليمات)")
+
+    # Facebook Page + Instagram Reels settings
+    st.sidebar.markdown("---")
+    st.sidebar.header("📘 فيسبوك وانستغرام")
+
+    fb_page_id = st.secrets.get("FB_PAGE_ID", "")
+    fb_page_token = st.secrets.get("FB_PAGE_ACCESS_TOKEN", "")
+    ig_user_id = st.secrets.get("IG_USER_ID", "")
+    ig_access_token = st.secrets.get("IG_ACCESS_TOKEN", fb_page_token)  # usually the same Page token works
+
+    fb_ready = bool(fb_page_id and fb_page_token)
+    ig_ready = bool(ig_user_id and ig_access_token)
+
+    fb_caption_template = st.sidebar.text_input(
+        "📝 نص منشور فيسبوك/انستغرام (استخدم {animal})",
+        value="حقائق مذهلة عن {animal} 🐾 #reels",
+        help="سيتم استبدال {animal} باسم الحيوان تلقائياً"
+    )
+
+    if fb_ready:
+        st.sidebar.success("🟢 فيسبوك متصل")
+    else:
+        st.sidebar.info("🔴 فيسبوك غير متصل — أضف FB_PAGE_ID و FB_PAGE_ACCESS_TOKEN في Secrets")
+
+    if ig_ready:
+        st.sidebar.success("🟢 انستغرام متصل")
+    else:
+        st.sidebar.info("🔴 انستغرام غير متصل — أضف IG_USER_ID (و IG_ACCESS_TOKEN إن لزم) في Secrets")
 
     st.sidebar.markdown("---")
 
@@ -823,6 +864,18 @@ def run_streamlit_app_ar():
             disabled=not yt_ready or not _YT_LIBS_OK,
             help="يتطلب توصيل حساب YouTube من الشريط الجانبي أولاً"
         )
+        auto_fb_upload = st.checkbox(
+            "📤 رفع تلقائي إلى فيسبوك ريلز بعد كل فيديو",
+            value=False,
+            disabled=not fb_ready,
+            help="يتطلب FB_PAGE_ID و FB_PAGE_ACCESS_TOKEN في Secrets"
+        )
+        auto_ig_upload = st.checkbox(
+            "📤 رفع تلقائي إلى انستغرام ريلز بعد كل فيديو",
+            value=False,
+            disabled=not ig_ready,
+            help="يتطلب IG_USER_ID في Secrets"
+        )
 
         col1, col2 = st.columns(2)
         interval_hours   = col1.number_input("⏱ ساعات الانتظار بين الفيديوهات", min_value=0, max_value=23, value=7, step=1)
@@ -846,6 +899,13 @@ def run_streamlit_app_ar():
                     'show_text':          show_text_on_video,
                     'auto_yt_upload':     auto_yt_upload,
                     'yt_title_template':  yt_title_template,
+                    'auto_fb_upload':     auto_fb_upload,
+                    'auto_ig_upload':     auto_ig_upload,
+                    'fb_page_id':         fb_page_id,
+                    'fb_page_token':      fb_page_token,
+                    'ig_user_id':         ig_user_id,
+                    'ig_access_token':    ig_access_token,
+                    'fb_caption_template': fb_caption_template,
                 }
                 with _auto_lock:
                     _auto_status.clear()
@@ -886,7 +946,7 @@ def run_streamlit_app_ar():
             st.subheader("📥 الفيديوهات المكتملة في هذه الجلسة")
             for p in done_paths:
                 if os.path.exists(p):
-                    dcol, ucol = st.columns([3, 1])
+                    dcol, ucol, fcol, icol = st.columns([2, 1, 1, 1])
                     with open(p, 'rb') as f:
                         dcol.download_button(
                             f"⬇️ {os.path.basename(p)}",
@@ -896,12 +956,33 @@ def run_streamlit_app_ar():
                         )
                     _basename = os.path.splitext(os.path.basename(p))[0]
                     _animal_guess = _basename.split("عن ")[-1].split(" لن")[0].strip() if "عن " in _basename else _basename
-                    if ucol.button("📤 رفع YT", key=f"yt_{p}", disabled=not yt_ready or not _YT_LIBS_OK):
+                    if ucol.button("📤 YT", key=f"yt_{p}", disabled=not yt_ready or not _YT_LIBS_OK):
                         with st.spinner("جاري الرفع إلى YouTube Shorts..."):
                             ok, result = upload_to_youtube_shorts(p, _animal_guess, yt_title_template)
                         if ok:
                             st.success(f"✅ تم الرفع! https://youtube.com/shorts/{result}")
                             _save_history_entry(_animal_guess, 0, p, f"https://youtube.com/shorts/{result}")
+                        else:
+                            st.error(f"❌ فشل الرفع: {result}")
+                    if fcol.button("📤 FB", key=f"fb_{p}", disabled=not fb_ready):
+                        with st.spinner("جاري الرفع إلى فيسبوك ريلز..."):
+                            ok, result = upload_facebook_reel(
+                                fb_page_id, fb_page_token, p,
+                                title=fb_caption_template.replace("{animal}", _animal_guess),
+                                description=fb_caption_template.replace("{animal}", _animal_guess)
+                            )
+                        if ok:
+                            st.success(f"✅ تم الرفع! https://facebook.com/reel/{result}")
+                        else:
+                            st.error(f"❌ فشل الرفع: {result}")
+                    if icol.button("📤 IG", key=f"ig_{p}", disabled=not ig_ready):
+                        with st.spinner("جاري الرفع إلى انستغرام ريلز (قد يستغرق دقائق)..."):
+                            ok, result = upload_instagram_reel(
+                                ig_user_id, ig_access_token, p,
+                                caption=fb_caption_template.replace("{animal}", _animal_guess)
+                            )
+                        if ok:
+                            st.success(f"✅ تم الرفع! Media ID: {result}")
                         else:
                             st.error(f"❌ فشل الرفع: {result}")
 
