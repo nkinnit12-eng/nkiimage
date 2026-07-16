@@ -500,7 +500,7 @@ def _load_history():
     return []
 
 
-def _save_history_entry(animal, num_facts, video_path, yt_url=None):
+def _save_history_entry(animal, num_facts, video_path, yt_url=None, fb_video_id=None, ig_media_id=None):
     history = _load_history()
     entry = {
         "date":       datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -509,6 +509,8 @@ def _save_history_entry(animal, num_facts, video_path, yt_url=None):
         "video_path": video_path,
         "filename":   os.path.basename(video_path) if video_path else "",
         "yt_url":     yt_url or "",
+        "fb_video_id": fb_video_id or "",
+        "ig_media_id": ig_media_id or "",
         "size_mb":    round(os.path.getsize(video_path) / (1024*1024), 1) if video_path and os.path.exists(video_path) else 0,
     }
     history.insert(0, entry)   # newest first
@@ -649,7 +651,7 @@ def _run_automation(animals, interval_seconds, params):
                     _auto_status['log'].append(f"❌ فشل إنشاء الفيديو لـ {animal}.")
 
             if success and final_path:
-                yt_url = ""
+                yt_url, fb_video_id, ig_media_id = "", "", ""
                 # Auto-upload to YouTube if enabled — done OUTSIDE the lock,
                 # since this can take a while and shouldn't freeze the
                 # progress display for that whole time.
@@ -677,6 +679,7 @@ def _run_automation(animals, interval_seconds, params):
                     )
                     with _auto_lock:
                         if ok:
+                            fb_video_id = result
                             _auto_status['log'].append(f"✅ تم الرفع إلى فيسبوك: video_id {result}")
                         else:
                             _auto_status['log'].append(f"❌ فشل رفع فيسبوك: {result}")
@@ -691,11 +694,12 @@ def _run_automation(animals, interval_seconds, params):
                     )
                     with _auto_lock:
                         if ok:
+                            ig_media_id = result
                             _auto_status['log'].append(f"✅ تم الرفع إلى انستغرام: media_id {result}")
                         else:
                             _auto_status['log'].append(f"❌ فشل رفع انستغرام: {result}")
 
-                _save_history_entry(animal, params.get('num_facts', 0), final_path, yt_url)
+                _save_history_entry(animal, params.get('num_facts', 0), final_path, yt_url, fb_video_id, ig_media_id)
         except Exception as e:
             with _auto_lock:
                 _auto_status['log'].append(f"❌ خطأ أثناء معالجة {animal}: {e}")
@@ -786,6 +790,20 @@ def run_streamlit_app_ar():
     st.sidebar.markdown("---")
 
     # ── Manual mode ───────────────────────────────────────────────────────────
+    st.sidebar.caption("📤 الرفع التلقائي بعد الإنشاء اليدوي (اختياري):")
+    manual_auto_yt = st.sidebar.checkbox(
+        "رفع تلقائي إلى YouTube بعد كل فيديو (وضع يدوي)",
+        value=False, disabled=not yt_ready or not _YT_LIBS_OK, key="manual_auto_yt"
+    )
+    manual_auto_fb = st.sidebar.checkbox(
+        "رفع تلقائي إلى فيسبوك ريلز بعد كل فيديو (وضع يدوي)",
+        value=False, disabled=not fb_ready, key="manual_auto_fb"
+    )
+    manual_auto_ig = st.sidebar.checkbox(
+        "رفع تلقائي إلى انستغرام ريلز بعد كل فيديو (وضع يدوي)",
+        value=False, disabled=not ig_ready, key="manual_auto_ig"
+    )
+
     if st.sidebar.button("1. توليد الحقائق والصور"):
         if animals:
             st.session_state.step = 'generating_images'
@@ -839,7 +857,34 @@ def run_streamlit_app_ar():
                 )
                 if success and final_path:
                     video_paths.append(final_path)
-                    _save_history_entry(animal, num_facts, final_path)
+                    yt_url, fb_video_id, ig_media_id = "", "", ""
+                    if manual_auto_yt:
+                        print(f"--- [رفع] جاري رفع الفيديو إلى YouTube Shorts: {animal}... ---")
+                        ok, result = upload_to_youtube_shorts(final_path, animal, yt_title_template)
+                        if ok:
+                            yt_url = f"https://youtube.com/shorts/{result}"
+                            print(f"✅ تم الرفع إلى YouTube: {yt_url}")
+                        else:
+                            print(f"❌ فشل رفع YouTube: {result}")
+                    if manual_auto_fb:
+                        print(f"--- [رفع] جاري رفع الفيديو إلى فيسبوك ريلز: {animal}... ---")
+                        caption = fb_caption_template.replace("{animal}", animal)
+                        ok, result = upload_facebook_reel(fb_page_id, fb_page_token, final_path, title=caption, description=caption)
+                        if ok:
+                            fb_video_id = result
+                            print(f"✅ تم الرفع إلى فيسبوك: video_id {result}")
+                        else:
+                            print(f"❌ فشل رفع فيسبوك: {result}")
+                    if manual_auto_ig:
+                        print(f"--- [رفع] جاري رفع الفيديو إلى انستغرام ريلز: {animal} (قد يستغرق دقائق)... ---")
+                        caption = fb_caption_template.replace("{animal}", animal)
+                        ok, result = upload_instagram_reel(ig_user_id, ig_access_token, final_path, caption=caption)
+                        if ok:
+                            ig_media_id = result
+                            print(f"✅ تم الرفع إلى انستغرام: media_id {result}")
+                        else:
+                            print(f"❌ فشل رفع انستغرام: {result}")
+                    _save_history_entry(animal, num_facts, final_path, yt_url, fb_video_id, ig_media_id)
             if video_paths:
                 zip_path = os.path.join("videos", "جميع_الفيديوهات.zip")
                 with zipfile.ZipFile(zip_path, 'w') as zf:
@@ -1023,6 +1068,14 @@ def run_streamlit_app_ar():
                         col_a.markdown(f"**YouTube:** [{entry['yt_url']}]({entry['yt_url']})")
                     else:
                         col_a.write("**YouTube:** لم يُرفع")
+                    if entry.get("fb_video_id"):
+                        col_a.write(f"**فيسبوك:** تم الرفع (video_id {entry['fb_video_id']})")
+                    else:
+                        col_a.write("**فيسبوك:** لم يُرفع")
+                    if entry.get("ig_media_id"):
+                        col_a.write(f"**انستغرام:** تم الرفع (media_id {entry['ig_media_id']})")
+                    else:
+                        col_a.write("**انستغرام:** لم يُرفع")
 
                     vpath = entry.get("video_path","")
                     if vpath and os.path.exists(vpath):
@@ -1033,17 +1086,50 @@ def run_streamlit_app_ar():
                                 file_name=entry.get("filename","video.mp4"),
                                 key=f"hist_dl_{idx}"
                             )
-                        if not entry.get("yt_url") and col_b.button("📤 رفع YT", key=f"hist_yt_{idx}", disabled=not yt_ready or not _YT_LIBS_OK):
+                        if not entry.get("yt_url") and col_b.button("📤 YT", key=f"hist_yt_{idx}", disabled=not yt_ready or not _YT_LIBS_OK):
                             with st.spinner("جاري الرفع..."):
                                 ok, result = upload_to_youtube_shorts(vpath, entry.get("animal",""), yt_title_template)
                             if ok:
                                 yt_link = f"https://youtube.com/shorts/{result}"
                                 st.success(f"✅ {yt_link}")
-                                # Update history entry with yt_url
                                 all_hist = _load_history()
                                 for h in all_hist:
                                     if h.get("video_path") == vpath:
                                         h["yt_url"] = yt_link
+                                        break
+                                with open(_HISTORY_FILE, "w", encoding="utf-8") as _hf:
+                                    json.dump(all_hist, _hf, ensure_ascii=False, indent=2)
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {result}")
+
+                        if not entry.get("fb_video_id") and col_b.button("📤 FB", key=f"hist_fb_{idx}", disabled=not fb_ready):
+                            with st.spinner("جاري الرفع إلى فيسبوك..."):
+                                caption = fb_caption_template.replace("{animal}", entry.get("animal",""))
+                                ok, result = upload_facebook_reel(fb_page_id, fb_page_token, vpath, title=caption, description=caption)
+                            if ok:
+                                st.success(f"✅ video_id {result}")
+                                all_hist = _load_history()
+                                for h in all_hist:
+                                    if h.get("video_path") == vpath:
+                                        h["fb_video_id"] = result
+                                        break
+                                with open(_HISTORY_FILE, "w", encoding="utf-8") as _hf:
+                                    json.dump(all_hist, _hf, ensure_ascii=False, indent=2)
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {result}")
+
+                        if not entry.get("ig_media_id") and col_b.button("📤 IG", key=f"hist_ig_{idx}", disabled=not ig_ready):
+                            with st.spinner("جاري الرفع إلى انستغرام (قد يستغرق دقائق)..."):
+                                caption = fb_caption_template.replace("{animal}", entry.get("animal",""))
+                                ok, result = upload_instagram_reel(ig_user_id, ig_access_token, vpath, caption=caption)
+                            if ok:
+                                st.success(f"✅ media_id {result}")
+                                all_hist = _load_history()
+                                for h in all_hist:
+                                    if h.get("video_path") == vpath:
+                                        h["ig_media_id"] = result
                                         break
                                 with open(_HISTORY_FILE, "w", encoding="utf-8") as _hf:
                                     json.dump(all_hist, _hf, ensure_ascii=False, indent=2)
