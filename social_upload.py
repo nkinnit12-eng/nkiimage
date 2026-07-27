@@ -84,17 +84,22 @@ def upload_facebook_reel(page_id: str, page_access_token: str, video_path: str,
 # ── Temporary public hosting for Instagram (needs a public video_url) ──
 def _host_temporarily(video_path: str, expiry: str = "1h") -> str:
     """Uploads to litterbox.catbox.moe, returns a public URL that auto-expires. Raises on failure."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    }
     with open(video_path, "rb") as f:
         resp = requests.post(
             "https://litterbox.catbox.moe/resources/internals/api.php",
             data={"reqtype": "fileupload", "time": expiry},
             files={"fileToUpload": f},
+            headers=headers,
             timeout=180
         )
     resp.raise_for_status()
     url = resp.text.strip()
     if not url.startswith("http"):
-        raise RuntimeError(f"فشل الاستضافة المؤقتة: {url}")
+        raise RuntimeError(f"فشل الاستضافة المؤقتة: {url[:200]}")
     return url
 
 
