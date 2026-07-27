@@ -148,8 +148,84 @@ def fetch_facts_from_gemini_ar(topic_ar, num_facts):
         print(f"ERROR: خطأ في Gemini API: {e}")
         return []
 
+# ── Image AI backend selection ───────────────────────────────────────
+# Set from the sidebar each rerun. "cloudflare" = your existing
+# WEBSITEURLAPI/Flux pipeline (unchanged). "hidream" = the HiDream
+# worker (different API: aspect_ratio instead of width/height, GET
+# request, raw image bytes back, no JSON/base64 wrapping).
+_IMAGE_BACKEND = {"name": "cloudflare", "hidream_worker_url": ""}
+
+_HIDREAM_ASPECT_RATIOS = {
+    "1:1": 1.0, "4:3": 4 / 3, "3:4": 3 / 4, "16:9": 16 / 9, "9:16": 9 / 16,
+}
+
+
+def _closest_hidream_aspect_ratio(width, height):
+    target = width / height
+    return min(_HIDREAM_ASPECT_RATIOS, key=lambda k: abs(_HIDREAM_ASPECT_RATIOS[k] - target))
+
+
+def _download_image_hidream(prompt, filename, width=1080, height=1920, seed=None):
+    MAX_RETRIES = 3
+    worker_url = _IMAGE_BACKEND.get("hidream_worker_url", "").strip()
+    aspect_ratio = _closest_hidream_aspect_ratio(width, height)
+
+    if not worker_url:
+        print("ERROR: لم يتم تعيين رابط HiDream Worker في الشريط الجانبي.")
+    else:
+        for attempt in range(MAX_RETRIES):
+            print(f"INFO: (HiDream) محاولة {attempt + 1}/{MAX_RETRIES} لتحميل الصورة: {prompt[:40]}...")
+            try:
+                params = {
+                    "prompt": prompt,
+                    "aspect_ratio": aspect_ratio,
+                    "seed": seed if seed is not None else -1,
+                }
+                response = requests.get(worker_url, params=params, timeout=120)
+                response.raise_for_status()
+                content_type = response.headers.get("Content-Type", "")
+                if "image" in content_type or content_type == "":
+                    with open(filename, "wb") as f:
+                        f.write(response.content)
+                    print(f"SUCCESS: (HiDream) تم تحميل الصورة: {os.path.basename(filename)}")
+                    return True
+                raise ValueError(f"استجابة غير متوقعة من HiDream: {content_type} — {response.text[:200]}")
+            except Exception as e:
+                print(f"WARNING: (HiDream) فشلت المحاولة {attempt + 1}: {e}")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(5)
+                else:
+                    print(f"ERROR: (HiDream) فشلت جميع محاولات التحميل لـ '{prompt}'.")
+
+    # Same placeholder fallback as the Cloudflare path, so a HiDream outage
+    # degrades the same way an existing failure already does.
+    try:
+        print(f"WARNING: إنشاء صورة بديلة لـ '{prompt}'")
+        img = Image.new("RGB", (width, height), color="darkgrey")
+        d = ImageDraw.Draw(img)
+        font = ImageFont.truetype(FONT_PATH, 40)
+        text = f"فشل تحميل الصورة (HiDream):\n{prompt[:100]}"
+        text_bbox = d.textbbox((0, 0), text, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
+        d.text(((width - text_width) / 2, (height - text_height) / 2),
+               text, fill=(255, 255, 255), font=font, align="center")
+        img.save(filename)
+        return True
+    except Exception:
+        return False
+
+
 def download_image(prompt, filename, width=1080, height=1920, seed=None,
                    model="@cf/black-forest-labs/flux-2-klein-4b", quality="standard", style=""):
+    # Single branching point: if the user picked "HiDream" in the sidebar,
+    # delegate entirely to the HiDream backend — everything downstream
+    # (generate_images, generate_intro_scene, create_video_from_data_ar,
+    # the manual per-image regenerate button, automation) calls this same
+    # function and doesn't need to know which backend actually ran.
+    if _IMAGE_BACKEND.get("name") == "hidream":
+        return _download_image_hidream(prompt, filename, width, height, seed=seed)
+
     MAX_RETRIES = 3
 
     for attempt in range(MAX_RETRIES):
@@ -730,6 +806,22 @@ def run_streamlit_app_ar():
     aspect_ratio = st.sidebar.radio("نسبة العرض إلى الارتفاع", ["16:9 (أفقي)", "9:16 (عمودي)"], index=1)
     video_w, video_h = (1280, 720) if aspect_ratio.startswith("16:9") else (720, 1280)
     show_text_on_video = st.sidebar.checkbox("إظهار النص على الفيديو", False)
+
+    st.sidebar.header("🖼️ مزود توليد الصور")
+    image_backend_choice = st.sidebar.radio(
+        "اختر الذكاء الاصطناعي لتوليد الصور",
+        ["Cloudflare (الافتراضي)", "HiDream"],
+        index=0
+    )
+    _IMAGE_BACKEND["name"] = "hidream" if image_backend_choice == "HiDream" else "cloudflare"
+    if _IMAGE_BACKEND["name"] == "hidream":
+        _IMAGE_BACKEND["hidream_worker_url"] = st.sidebar.text_input(
+            "رابط HiDream Worker",
+            value=st.secrets.get("HIDREAM_WORKER_URL", ""),
+            help="رابط الـ Cloudflare Worker الخاص بـ HiDream (نفس الرابط المستخدم في صفحة HTML الخاصة به)"
+        )
+        if not _IMAGE_BACKEND["hidream_worker_url"]:
+            st.sidebar.warning("⚠️ أضف رابط HiDream Worker، أو أضفه كـ HIDREAM_WORKER_URL في Secrets")
 
     st.sidebar.header("إعدادات الصوت")
     voice_cat_keys = {'أصوات عربية (ذكور)': 'ar_male', 'أصوات عربية (إناث)': 'ar_Female'}
