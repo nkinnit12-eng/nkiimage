@@ -181,7 +181,7 @@ def _download_image_hidream(prompt, filename, width=1080, height=1920, seed=None
                     "aspect_ratio": aspect_ratio,
                     "seed": seed if seed is not None else -1,
                 }
-                response = requests.get(worker_url, params=params, timeout=120)
+                response = requests.get(worker_url, params=params, timeout=300)
                 response.raise_for_status()
                 content_type = response.headers.get("Content-Type", "")
                 if "image" in content_type or content_type == "":
