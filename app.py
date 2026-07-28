@@ -815,13 +815,7 @@ def run_streamlit_app_ar():
     )
     _IMAGE_BACKEND["name"] = "hidream" if image_backend_choice == "HiDream" else "cloudflare"
     if _IMAGE_BACKEND["name"] == "hidream":
-        _IMAGE_BACKEND["hidream_worker_url"] = st.sidebar.text_input(
-            "رابط HiDream Worker",
-            value=st.secrets.get("HIDREAM_WORKER_URL", ""),
-            help="رابط الـ Cloudflare Worker الخاص بـ HiDream (نفس الرابط المستخدم في صفحة HTML الخاصة به)"
-        )
-        if not _IMAGE_BACKEND["hidream_worker_url"]:
-            st.sidebar.warning("⚠️ أضف رابط HiDream Worker، أو أضفه كـ HIDREAM_WORKER_URL في Secrets")
+        _IMAGE_BACKEND["hidream_worker_url"] = st.secrets.get("HIDREAM_WORKER_URL", "")
 
     st.sidebar.header("إعدادات الصوت")
     voice_cat_keys = {'أصوات عربية (ذكور)': 'ar_male', 'أصوات عربية (إناث)': 'ar_Female'}
